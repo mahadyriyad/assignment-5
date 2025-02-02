@@ -1,0 +1,108 @@
+// Backend: server.js (Node.js, Express, MongoDB)
+const express = require('express');
+const mongoose = require('mongoose');
+const cors = require('cors');
+const jwt = require('jsonwebtoken');
+const bcrypt = require('bcryptjs');
+require('dotenv').config();
+
+const app = express();
+app.use(express.json());
+app.use(cors());
+
+mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => console.error(err));
+
+const UserSchema = new mongoose.Schema({ email: String, password: String });
+const User = mongoose.model('User', UserSchema);
+
+app.post('/register', async (req, res) => {
+  const { email, password } = req.body;
+  const hashedPassword = bcrypt.hashSync(password, 10);
+  const user = new User({ email, password: hashedPassword });
+  await user.save();
+  res.json({ message: 'User registered successfully' });
+});
+
+app.post('/login', async (req, res) => {
+  const { email, password } = req.body;
+  const user = await User.findOne({ email });
+  if (user && bcrypt.compareSync(password, user.password)) {
+    const token = jwt.sign({ id: user._id }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    res.json({ token });
+  } else {
+    res.status(401).json({ error: 'Invalid credentials' });
+  }
+});
+
+const BlogSchema = new mongoose.Schema({ title: String, content: String });
+const Blog = mongoose.model('Blog', BlogSchema);
+
+app.get('/blogs', async (req, res) => res.json(await Blog.find()));
+app.post('/blogs', async (req, res) => res.json(await Blog.create(req.body)));
+app.delete('/blogs/:id', async (req, res) => res.json(await Blog.findByIdAndDelete(req.params.id)));
+
+app.listen(5000, () => console.log('Server running on port 5000'));
+
+// Frontend: index.html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Portfolio</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+</head>
+<body>
+    <div id="root"></div>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/react@18/umd/react.development.js"></script>
+    <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"></script>
+    <script src="https://unpkg.com/babel-standalone@6/babel.min.js"></script>
+    <script type="text/babel">
+        function App() {
+            const [blogs, setBlogs] = React.useState([]);
+            const [email, setEmail] = React.useState('');
+            const [password, setPassword] = React.useState('');
+            
+            React.useEffect(() => {
+                fetch('https://your-backend.vercel.app/blogs')
+                    .then(res => res.json())
+                    .then(data => setBlogs(data));
+            }, []);
+
+            const handleLogin = async () => {
+                const res = await fetch('https://your-backend.vercel.app/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                const data = await res.json();
+                alert(data.token ? 'Login Successful' : 'Login Failed');
+            };
+
+            return (
+                <div className="container mt-5">
+                    <h1 className="text-center">Portfolio Website</h1>
+                    <div className="mb-3">
+                        <input type='email' className='form-control' placeholder='Email' value={email} onChange={(e) => setEmail(e.target.value)} />
+                        <input type='password' className='form-control mt-2' placeholder='Password' value={password} onChange={(e) => setPassword(e.target.value)} />
+                        <button className='btn btn-primary mt-2' onClick={handleLogin}>Login</button>
+                    </div>
+                    {blogs.map(blog => (
+                        <div key={blog._id} className='card mt-3'>
+                            <div className='card-body'>
+                                <h2 className='card-title'>{blog.title}</h2>
+                                <p className='card-text'>{blog.content}</p>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            );
+        }
+
+        ReactDOM.createRoot(document.getElementById('root')).render(<App />);
+    </script>
+</body>
+</html>
